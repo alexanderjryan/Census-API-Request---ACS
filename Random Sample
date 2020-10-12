@@ -1,1 +1,260 @@
+import requests
+import pandas as pd
+import time
+import numpy as np
+import requests_cache
+import regex as re
+
+start=time.process_time()
+requests_cache.install_cache()
+
+#Pull Data
+ACS_17_Detailed_Table_Base_URL='https://api.census.gov/data/2018/acs/acs5?get=NAME,%s&for=%s'
+
+#Table
+Population='B01003_001E'
+
+#Geography
+PlacewithinState='place'
+County_Subdivision_Mass='county+subdivision:*&in=state:25'
+County_Subdivision_Penn='county+subdivision:*&in=state:42'
+County_Subdivision_NH='county+subdivision:*&in=state:33'
+County_Mizzo='county'
+
+
+#define functions
+def LowerCase(lst):
+    return [x.lower() for x in lst]
+def ExtractCityNameAndDate(city):
+    return [item[:2] for item in city]
+def DeletePls(lst,string):
+    return[x for x in lst if string not in x]
+def getUniqueItems(iterable):
+    result = []
+    for item in iterable:
+        if item not in result:
+            result.append(item)
+    return result
+def datatype(citylist,name):
+    for x in citylist:
+        x.append(name)
+def checkio(data):
+    a=[i for i in data if data.count(i)>1]
+    return a
+def MatchIndicesDel(city2,word):
+    return[city2.index(i) for i in city2 if word not in i]
+def MatchCityNames(city2,word):
+    return[x for x in city2 if word in x]
+def MatchIndices(city2,word):
+    return[city2.index(i) for i in city2 if word in i] 
+def Deletion(listofdeletion, words):
+    for x in listofdeletion:
+        if words in x[0]:
+            a=listofdeletion.index(x)
+            listofdeletion.pop(a)
+
+
+#Create Lists
+xls=pd.ExcelFile(r'C:\Users\alexanderryan\Documents\Net Zero\PlaceWithinCity.xlsx')
+
+Placexls = pd.read_excel(xls, sheet_name="Place")
+Countyxls = pd.read_excel(xls,sheet_name="County")
+Subcounty_PAxls=pd.read_excel(xls,sheet_name='Subcounty_PA')
+Subcounty_MAxls=pd.read_excel(xls,sheet_name='Subcounty_MA')
+Subcounty_NHxls=pd.read_excel(xls,sheet_name='Subcounty_NH')
+
+Placedf = pd.DataFrame(Placexls, columns= ['City'])
+Countydf = pd.DataFrame(Countyxls, columns=['City'])
+Subcounty_PAdf = pd.DataFrame(Subcounty_PAxls, columns=['City'])
+Subcounty_MAdf = pd.DataFrame(Subcounty_MAxls, columns=['City'])
+Subcounty_NHdf = pd.DataFrame(Subcounty_NHxls, columns=['City'])
+
+PlaceWithinState_Upper=Placedf['City'].tolist()
+County_Upper=Countydf['City'].tolist()
+Subcounty_PA_Upper=Subcounty_PAdf['City'].tolist()
+Subcounty_MA_Upper=Subcounty_MAdf['City'].tolist()
+Subcounty_NH_Upper=Subcounty_NHdf['City'].tolist()
+
+PlaceWithinState=LowerCase(PlaceWithinState_Upper)
+County=LowerCase(County_Upper)
+Subcounty_PA=LowerCase(Subcounty_PA_Upper)
+Subcounty_MA=LowerCase(Subcounty_MA_Upper)
+Subcounty_NH=LowerCase(Subcounty_NH_Upper)
+
+County_Subdivision = Subcounty_PA + Subcounty_MA + Subcounty_NH
+Full_Cities=County_Subdivision+PlaceWithinState+County
+print(Full_Cities)
+Remove=['Lake St. Louis city, Missouri','South San Francisco city, California','Upper Uwchlan township, Chester County, Pennsylvania','West Chicago city, Illinois','North Chicago city, Illinois','East Cleveland city, Ohio','West Conshohocken borough, Pennsylvania','North Kansas City city, Missouri','East Palo Alto city, California','North St. Paul city, Minnesota','South St. Paul city, Minnesota','West St. Paul city, Minnesota','South Burlington city, Vermont','West Columbia city, South Carolina', 'South Ogden city, Utah','North Ogden city, Utah','East Helena city, Montana']
+
+
+
+
+#Request Census Data
+response_PlaceWithinState=requests.get(ACS_17_Detailed_Table_Base_URL % (Population,PlacewithinState))
+
+response_County_Subdivision_Mass=requests.get(ACS_17_Detailed_Table_Base_URL % (Population,County_Subdivision_Mass))
+response_County_Subdivision_Penn=requests.get(ACS_17_Detailed_Table_Base_URL % (Population,County_Subdivision_Penn))
+response_County_Subdivision_NH=requests.get(ACS_17_Detailed_Table_Base_URL % (Population,County_Subdivision_NH))
+
+response_County=requests.get(ACS_17_Detailed_Table_Base_URL % (Population, County_Mizzo))
+
+#Convert to json
+
+json_results_PlaceWithinState=response_PlaceWithinState.json()
+json_results_County_Subdivision_Mass=response_County_Subdivision_Mass.json()
+json_results_County_Subdivision_Penn=response_County_Subdivision_Penn.json()
+json_results_County_Subdivision_NH=response_County_Subdivision_NH.json()
+json_results_County=response_County.json()
+
+#edit lists
+json_results_Subcounty=json_results_County_Subdivision_NH+json_results_County_Subdivision_Penn+json_results_County_Subdivision_Mass
+Deletion(json_results_County,'St. Louis city, Missouri')
+Deletion(json_results_County,'Fredericksburg city, Virginia')
+datatype(json_results_PlaceWithinState,"place")
+datatype(json_results_County,"county")
+datatype(json_results_Subcounty,"subcounty")
+
+for x in json_results_Subcounty:
+    x.pop(3)
+
+json_full=json_results_Subcounty+json_results_County+json_results_PlaceWithinState
+json_excl_county=json_results_Subcounty+json_results_PlaceWithinState
+
+#Pull Net Zero Cities and Pop
+def Compiled(json_pull,ListofCitiesToDelete,FullListofCities):
+    Census_Cities_Full=json_pull
+    for eachcity in ListofCitiesToDelete:
+        Deletion(Census_Cities_Full,eachcity)
+    Census_Cities=[]
+    Census_Data=[]
+    Census_State=[]
+    Census_FIPS=[]
+    Census_Type=[]
+    for separatecolumns in Census_Cities_Full:
+        Census_Cities.append(separatecolumns[0])
+        Census_Data.append(separatecolumns[1])
+        Census_State.append(separatecolumns[2])
+        Census_FIPS.append(separatecolumns[3])
+        Census_Type.append(separatecolumns[4])
+    Lower_Census_Cities=LowerCase(Census_Cities)
+    Matching_City_Names=[]
+    for L in FullListofCities:
+        Matching_City_Names.append(str(MatchCityNames(Lower_Census_Cities,L)).replace('[','').replace(']','').replace("'",""))
+    Matching_Cities_Index=[]
+    for m in FullListofCities:
+        Matching_Cities_Index.append(int(str(MatchIndices(Lower_Census_Cities,m)).replace('[','').replace(']','')))
+    Matching_Data=[]
+    Matching_States=[]
+    Matching_FIPS=[]
+    Matching_Type=[]
+    for w in Matching_Cities_Index:
+        Matching_Data.append(int(Census_Data[w]))
+        Matching_States.append(Census_State[w])
+        Matching_FIPS.append(Census_FIPS[w])
+        Matching_Type.append(Census_Type[w])
+    NameofDataFrameFinal=pd.DataFrame(Matching_Data)
+    NameofDataFrameFinal.columns= ['Population']
+    NameofDataFrameFinal['City']= Matching_City_Names
+    NameofDataFrameFinal['State']=Matching_States
+    NameofDataFrameFinal['FIPS']=Matching_FIPS
+    NameofDataFrameFinal['Type']=Matching_Type
+    return NameofDataFrameFinal
+
+
+Full_Cities_Pop=Compiled(json_full,Remove,Full_Cities)
+
+#Pull Full List of Cities & Pop
+Census_Cities_Full=(ExtractCityNameAndDate(json_excl_county))
+Census_Cities_NoID=[]
+for elem in Census_Cities_Full:
+    if elem not in Census_Cities_NoID:
+        Census_Cities_NoID.append(elem)
+Census_Cities_NoID.pop(0)
+
+for eachcity in Remove:
+    Deletion(Census_Cities_NoID,eachcity)
+Census_Cities1=[]
+Census_Data=[]
+for separatecolumns in Census_Cities_NoID:
+    Census_Cities1.append(separatecolumns[0])
+    Census_Data.append(int(separatecolumns[1]))
+Census_Cities=LowerCase(Census_Cities1)
+PR='puerto rico'
+CDP='cdp'
+PR_CDP=['puerto rico','cdp']
+Non_County=['town', 'township', 'borough','city']
+Exclude_PR=MatchIndicesDel(Census_Cities,PR)
+Exclude_CDP=MatchIndicesDel(Census_Cities,CDP)
+Exclude_Both=Exclude_PR+Exclude_CDP
+def getUniqueItems(iterable):
+    result = []
+    for item in iterable:
+        if item not in result:
+            result.append(item)
+    return result
+def checkio(data):
+    a=[i for i in data if data.count(i)>1]
+    return a
+duplicate=checkio(Exclude_Both)
+unique=getUniqueItems(duplicate)
+Matching_Pop=[]
+for w in unique:
+    Matching_Pop.append(int(Census_Data[w]))
+Matching_City=[]
+for w in unique:
+    Matching_City.append(Census_Cities[w])
+Combined1=pd.DataFrame(Matching_City)
+Combined1.columns=['City']
+Combined1['Population']=Matching_Pop
+
+Combined = Combined1.loc[~Combined1['City'].isin(Full_Cities)]
+
+Set_50000 = Combined.loc[(Combined['Population'] < 50000)]
+Set_100000 = Combined.loc[(Combined['Population'] < 100000) & (Combined['Population'] > 50000)] 
+Set_150000 = Combined.loc[(Combined['Population'] < 150000) & (Combined['Population'] > 100000)] 
+Set_200000 = Combined.loc[(Combined['Population'] < 200000) & (Combined['Population'] > 150000)] 
+Set_250000 = Combined.loc[(Combined['Population'] < 250000) & (Combined['Population'] > 200000)] 
+Set_300000 = Combined.loc[(Combined['Population'] < 300000) & (Combined['Population'] > 250000)] 
+Set_350000 = Combined.loc[(Combined['Population'] < 350000) & (Combined['Population'] > 300000)] 
+Set_350000plus = Combined.loc[(Combined['Population'] > 350000)] 
+
+Net_Set_50000 = Full_Cities_Pop.loc[(Full_Cities_Pop['Population'] < 50000)] 
+Net_Set_100000 = Full_Cities_Pop.loc[(Full_Cities_Pop['Population'] < 100000) & (Full_Cities_Pop['Population'] > 50000)] 
+Net_Set_150000 = Full_Cities_Pop.loc[(Full_Cities_Pop['Population'] < 150000) & (Full_Cities_Pop['Population'] > 100000)]
+Net_Set_200000 = Full_Cities_Pop.loc[(Full_Cities_Pop['Population'] < 200000) & (Full_Cities_Pop['Population'] > 150000)]
+Net_Set_250000 = Full_Cities_Pop.loc[(Full_Cities_Pop['Population'] < 250000) & (Full_Cities_Pop['Population'] > 200000)]
+Net_Set_300000 = Full_Cities_Pop.loc[(Full_Cities_Pop['Population'] < 300000) & (Full_Cities_Pop['Population'] > 250000)]
+Net_Set_350000 = Full_Cities_Pop.loc[(Full_Cities_Pop['Population'] < 350000) & (Full_Cities_Pop['Population'] > 300000)]
+Net_Set_350000plus = Full_Cities_Pop.loc[(Full_Cities_Pop['Population'] > 350000)] 
+
+
+
+#Create Sample by Range
+
+Sample_50000=np.random.choice(Set_50000["City"],len(Net_Set_50000),replace=False)
+Sample_100000=np.random.choice(Set_100000["City"],len(Net_Set_100000),replace=False)
+Sample_150000=np.random.choice(Set_150000["City"],len(Net_Set_150000),replace=False)
+Sample_200000=np.random.choice(Set_200000["City"],len(Net_Set_200000),replace=False)
+Sample_250000=np.random.choice(Set_250000["City"],len(Net_Set_250000),replace=False)
+Sample_300000=np.random.choice(Set_300000["City"],len(Net_Set_300000),replace=False)
+Sample_350000=np.random.choice(Set_350000["City"],len(Net_Set_350000),replace=False)
+Sample_350000plus=np.random.choice(Set_350000plus["City"],len(Net_Set_350000plus),replace=False)
+
+#Print number of cities in range
+
+
+print(len(Sample_50000));print(" cities w/ population <50,000:\n"); print(Sample_50000)
+print(len(Sample_100000));print(" cities w/ population <100,000 and >50,000\n");print(Sample_100000)
+print(len(Sample_150000));print(" cities w/ population <150,000 and >100,000\n");print(Sample_150000)
+print(len(Sample_200000));print(" cities w/ population <200,000 and >150,000\n");print(Sample_200000)
+print(len(Sample_250000));print(" cities w/ population <250,000 and >200,000\n");print(Sample_250000)
+print(len(Sample_300000));print(" cities w/ population <300,000 and >250,000\n");print(Sample_300000)
+print(len(Sample_350000));print(" cities w/ population <350,000 and >300,000\n");print(Sample_350000)
+print(len(Sample_350000plus));print(" cities w/ population >350,000\n");print(Sample_350000plus)
+print("\n\n Total size of sample: ");print((132+len(Sample_50000) +len(Sample_100000)+len(Sample_150000)+len(Sample_200000)+len(Sample_250000)+len(Sample_300000)+len(Sample_350000)+len(Sample_350000plus)))
+
+
+
+
+print(time.process_time() - start)
 
